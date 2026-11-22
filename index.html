@@ -1453,15 +1453,22 @@ document.querySelector('#share').addEventListener('click', async () => {
   const calories = [...document.querySelectorAll('.calorie')].map(x => x.textContent);
   const text = names.length
     ? `${title}\n${names.map((n, i) => `${i + 1}. ${n} · ${calories[i]}`).join('\n')}`
-    : `${title} — 오늘 메뉴를 같이 골라봐요!`;
+    : `${title} - 오늘 메뉴를 같이 골라봐요!`;
+  const sharePayload = `${text}\n${location.href}`;
+
+  if (window.AndroidShare && typeof window.AndroidShare.shareToKakao === 'function') {
+    window.AndroidShare.shareToKakao(sharePayload);
+    return;
+  }
+
   if (navigator.share) {
     try { await navigator.share({ title, text, url: location.href }); } catch (e) {}
   } else {
     try {
-      await navigator.clipboard.writeText(text + '\n' + location.href);
+      await navigator.clipboard.writeText(sharePayload);
       toast('공유 문구를 복사했어요. 카카오톡에 붙여넣으세요.');
     } catch (e) {
-      toast('공유 문구: ' + text);
+      toast('공유 문구: ' + sharePayload);
     }
   }
 });
