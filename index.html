@@ -185,7 +185,7 @@ button{cursor:pointer}
     <div class="result" id="result"></div>
     <div class="history" id="history"></div>
   </section>
-  <div class="foot">추천 기록은 이 기기에 저장돼요 · 1주일(7일)이 지난 메뉴는 다시 추천될 수 있어요</div>
+  <div class="foot">추천 기록은 이 기기에 저장돼요 · 일반 메뉴는 4일, 점심 특화 메뉴(소울푸드·파스타·버거/토스트)는 2주(14일) 주기로 순환돼요</div>
 </main>
 <div class="toast" id="toast"></div>
 
@@ -1346,78 +1346,215 @@ function update() {
 update();
 setInterval(update, 15000);
 
-const KEY = 'what-to-eat-history-v1';
-const LIMIT_DAYS = 7;
+const KEY = 'what-to-eat-history-v2';
+const LIMIT_DAYS = 4;
+const THEME_LIMIT_DAYS = 14;
+const PICK_COUNT = 5;
+
+const RE_SOUL = /(돈가스|치즈돈가스|생선가스|치킨가스|가츠동|돈가스김밥|제육|순대국|돼지국밥|뼈해장국|감자탕)/;
+const RE_PASTA = /(파스타|스파게티|알리오|봉골레|투움바|리조또)/;
+const RE_STUDENT = /(버거|토스트|샌드위치|브리또|타코|퀘사디아|핫도그)/;
+const RE_NOODLE = /(국수|칼국수|우동|라면|라멘|짬뽕|울면|탄탄멘|온모밀|냉모밀|수제비|옹심이|냉면|물회|콩국수|쫄면|막국수|짜장면|간짜장|쟁반짜장|팟타이|분짜|골뱅이소면|파스타|스파게티|알리오|봉골레|투움바)/;
+const RE_BANJU = /(삼겹살|목살|항정살|닭볶음탕|감자탕|뼈해장국|보쌈|족발|곱창|막창|닭발|닭똥집|오리주물럭|오리훈제|갈비찜|돼지갈비|소갈비|LA갈비|두부김치|바지락술찜|아구찜|해물탕|알탕|동태찌개|생태찌개|꽃게탕|조개탕|홍합탕|어묵탕|순대볶음|오징어볶음|낙지볶음|쭈꾸미|주꾸미|파전|해물파전|김치전|감자전|부추전|모둠전|녹두빈대떡|육전|고추잡채|양장피|깐풍기|유린기|칠리새우|크림새우|탕수육|꿔바로우|치킨|닭강정|골뱅이소면|육회|장어구이)/;
+
+function getLunchTheme(name) {
+  if (RE_SOUL.test(name)) return 'soul';
+  if (RE_PASTA.test(name)) return 'pasta';
+  if (RE_STUDENT.test(name)) return 'student';
+  return null;
+}
 
 function getHistory() {
   try { return JSON.parse(localStorage.getItem(KEY) || '{}'); }
   catch { return {}; }
 }
 
+function isBlocked(dish, h, nowMs, isLunch) {
+  const t = h[dish.name];
+  if (!t) return false;
+  const theme = isLunch ? getLunchTheme(dish.name) : null;
+  const days = theme ? THEME_LIMIT_DAYS : LIMIT_DAYS;
+  return (nowMs - t) < days * 864e5;
+}
+
 function showHistory() {
   const h = getHistory();
-  const cut = Date.now() - LIMIT_DAYS * 864e5;
-  const recent = Object.entries(h).filter(([, t]) => t > cut);
+  const nowMs = Date.now();
+  const activeCount = dishes.filter(d => {
+    const t = h[d.name];
+    if (!t) return false;
+    const days = getLunchTheme(d.name) ? THEME_LIMIT_DAYS : LIMIT_DAYS;
+    return (nowMs - t) < days * 864e5;
+  }).length;
   document.querySelector('#history').textContent =
-    `전체 메뉴 ${dishes.length}가지 · 최근 1주일 추천 기록 ${recent.length}개 (이 기기에 저장)`;
+    `전체 메뉴 ${dishes.length}가지 · 최근 추천 기록 ${activeCount}개 (일반 4일 · 점심 특화 14일 주기 저장)`;
 }
 showHistory();
+
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function buildMealPool(meal, weather, season, h, nowMs) {
+  const isLunch = (meal === '점심');
+  const tags = [];
+
+  // For lunch, also allow pasta/burger/toast items even if tagged 아침/간식/저녁 so 2-week pools stay rich
+  const matchMeal = (x) => {
+    if (x.meals.includes(meal)) return true;
+    if (isLunch && (RE_PASTA.test(x.name) || RE_STUDENT.test(x.name))) return true;
+    return false;
+  };
+
+  let pool = dishes.filter(x =>
+    matchMeal(x) && x.weathers.includes(weather) && x.seasons.includes(season) && !isBlocked(x, h, nowMs, isLunch)
+  );
+
+  if (pool.length < 15) {
+    const wider = dishes.filter(x =>
+      matchMeal(x) && x.seasons.includes(season) && !isBlocked(x, h, nowMs, isLunch) && !pool.includes(x)
+    );
+    pool.push(...wider);
+    if (wider.length) tags.push('조건에 맞는 메뉴가 적어 날씨 조건을 넓혔어요');
+  }
+  if (pool.length < 15) {
+    const wider = dishes.filter(x =>
+      matchMeal(x) && !isBlocked(x, h, nowMs, isLunch) && !pool.includes(x)
+    );
+    pool.push(...wider);
+    if (wider.length) tags.push('계절 조건도 넓혀 골랐어요');
+  }
+  if (pool.length < PICK_COUNT) {
+    for (const k of Object.keys(h)) delete h[k];
+    pool = dishes.filter(x => matchMeal(x));
+    tags.push('추천 가능한 메뉴를 모두 사용해 기록을 새로 시작했어요');
+  }
+  if (!pool.length) pool = dishes.slice();
+
+  return { pool, tags };
+}
+
+function pickFromGroup(pool, usedSet, predicate) {
+  const cands = shuffle(pool.filter(x => !usedSet.has(x.name) && predicate(x)));
+  if (!cands.length) return null;
+  usedSet.add(cands[0].name);
+  return cands[0];
+}
 
 function recommend() {
   const d = now();
   const season = seasonOf(d.getMonth() + 1);
   const weather = document.querySelector('#weather').value;
   const meal = document.querySelector('#meal').value;
+  const nowMs = Date.now();
+  const isLunch = (meal === '점심');
+  const isDinner = (meal === '저녁');
 
   let h = getHistory();
-  const cut = Date.now() - LIMIT_DAYS * 864e5;
-  for (const [n, t] of Object.entries(h)) {
-    if (t <= cut) delete h[n];
+  // Clean expired entries
+  for (const dish of dishes) {
+    const t = h[dish.name];
+    if (t) {
+      const maxDays = getLunchTheme(dish.name) ? THEME_LIMIT_DAYS : LIMIT_DAYS;
+      if (nowMs - t >= maxDays * 864e5) delete h[dish.name];
+    }
   }
 
-  let candidates = dishes.filter(x =>
-    x.meals.includes(meal) && x.weathers.includes(weather) && x.seasons.includes(season) && !h[x.name]
-  );
-  let tags = [];
+  const { pool, tags } = buildMealPool(meal, weather, season, h, nowMs);
+  const used = new Set();
+  const picks = [];
 
-  if (candidates.length < 3) {
-    const wider = dishes.filter(x =>
-      x.meals.includes(meal) && x.seasons.includes(season) && !h[x.name] && !candidates.includes(x)
-    );
-    candidates.push(...wider);
-    if (wider.length) tags.push('조건에 맞는 메뉴가 적어 날씨 조건을 넓혔어요');
-  }
-  if (candidates.length < 3) {
-    const wider = dishes.filter(x =>
-      x.meals.includes(meal) && !h[x.name] && !candidates.includes(x)
-    );
-    candidates.push(...wider);
-    if (wider.length) tags.push('계절 조건도 넓혀 골랐어요');
-  }
-  if (candidates.length < 3) {
-    h = {};
-    candidates = dishes.filter(x => x.meals.includes(meal));
-    tags.push('추천 가능한 메뉴를 모두 사용해 기록을 새로 시작했어요');
-  }
-  if (!candidates.length) candidates = dishes.filter(x => x.meals.includes('점심'));
+  if (isLunch) {
+    // 점심 5종 구성:
+    // - 밥·찌개류 3종 (60%): 그중 1종은 2주 주기 남성 소울푸드(돈가스·제육·순대국 계열) 우선 + 나머지 2종 일반 찌개/밥류
+    // - 면·간편식류 2종 (40%): 2주 주기 파스타 계열 / 2주 주기 학생 선호 햄버거·토스트 계열 및 계절 면류 조화
+    const soulPick = pickFromGroup(pool, used, x => RE_SOUL.test(x.name));
+    if (soulPick) picks.push(soulPick);
 
-  for (let i = candidates.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+    while (picks.length < 3) {
+      const ricePick = pickFromGroup(pool, used, x => !RE_NOODLE.test(x.name) && !RE_STUDENT.test(x.name));
+      if (!ricePick) break;
+      picks.push(ricePick);
+    }
+
+    // 4번째 슬롯: 여성 선호 파스타 계열 (2주 주기) 우선
+    const pastaPick = pickFromGroup(pool, used, x => RE_PASTA.test(x.name));
+    if (pastaPick) {
+      picks.push(pastaPick);
+    } else {
+      const noodlePick = pickFromGroup(pool, used, x => RE_NOODLE.test(x.name));
+      if (noodlePick) picks.push(noodlePick);
+    }
+
+    // 5번째 슬롯: 학생 선호 버거·토스트 계열 (2주 주기)와 일반 면류를 번갈아/조화롭게 배치
+    const preferStudent = (Math.random() < 0.65);
+    let fifthPick = preferStudent
+      ? pickFromGroup(pool, used, x => RE_STUDENT.test(x.name))
+      : pickFromGroup(pool, used, x => RE_NOODLE.test(x.name) && !RE_PASTA.test(x.name));
+    if (!fifthPick) {
+      fifthPick = pickFromGroup(pool, used, x => RE_NOODLE.test(x.name) || RE_STUDENT.test(x.name));
+    }
+    if (fifthPick) picks.push(fifthPick);
+
+    // 부족한 슬롯 보충
+    while (picks.length < PICK_COUNT) {
+      const anyPick = pickFromGroup(pool, used, () => true);
+      if (!anyPick) break;
+      picks.push(anyPick);
+    }
+  } else if (isDinner) {
+    // 저녁 5종 구성: 반주 어울림 메뉴(삼겹살·닭볶음탕·감자탕·보쌈 등) 2~3종 + 든든한 저녁 식사 2~3종
+    const banjuTarget = 2 + (Math.random() < 0.5 ? 1 : 0);
+    while (picks.length < banjuTarget) {
+      const bPick = pickFromGroup(pool, used, x => RE_BANJU.test(x.name));
+      if (!bPick) break;
+      picks.push(bPick);
+    }
+    while (picks.length < PICK_COUNT) {
+      const dPick = pickFromGroup(pool, used, () => true);
+      if (!dPick) break;
+      picks.push(dPick);
+    }
+  } else {
+    // 아침 · 간식 · 야식: 조건에 맞는 메뉴 5종 무작위 추천
+    while (picks.length < PICK_COUNT) {
+      const mPick = pickFromGroup(pool, used, () => true);
+      if (!mPick) break;
+      picks.push(mPick);
+    }
   }
 
-  const picks = candidates.slice(0, 3);
-  picks.forEach(x => h[x.name] = Date.now());
+  picks.forEach(x => { h[x.name] = nowMs; });
   localStorage.setItem(KEY, JSON.stringify(h));
+
+  function getRoleBadge(dish) {
+    if (isLunch) {
+      if (RE_SOUL.test(dish.name)) return '🔥 소울푸드 · 2주 주기';
+      if (RE_PASTA.test(dish.name)) return '🍝 파스타·리조또 · 2주 주기';
+      if (RE_STUDENT.test(dish.name)) return '🍔 버거·토스트 · 2주 주기';
+      if (RE_NOODLE.test(dish.name)) return '🍜 점심 면류 (40%)';
+      return '🍚 점심 밥·찌개 (60%)';
+    }
+    if (isDinner && RE_BANJU.test(dish.name)) {
+      return '🍶 반주·술안주 궁합';
+    }
+    return STYLE_LABEL[detectStyle(dish.name)];
+  }
 
   const result = document.querySelector('#result');
   result.innerHTML = `
     <div class="result-head">
       <span class="badge">${season} · ${weather} · ${meal}</span>
-      <span class="serves">오늘의 추천 3가지</span>
+      <span class="serves">오늘의 추천 ${picks.length}가지</span>
     </div>
     ${picks.map((dish, i) => {
       const pair = getSeasonalPairing(dish, season, weather, meal, i);
+      const isBanju = isDinner && RE_BANJU.test(dish.name);
       return `
       <section class="dish-card">
         <div class="dish-top">
@@ -1425,10 +1562,10 @@ function recommend() {
           <div class="dish-info">
             <div class="dish-tags">
               <span class="serves">추천 ${i + 1} · 2인 기준</span>
-              <span class="cat-pill">${STYLE_LABEL[detectStyle(dish.name)]}</span>
+              <span class="cat-pill">${getRoleBadge(dish)}</span>
             </div>
             <h2 class="dish">${dish.name}</h2>
-            <div class="meta">오늘의 ${season} 추천 메뉴</div>
+            <div class="meta">오늘의 ${season} ${meal} 추천 메뉴</div>
             <div class="calorie">1인 섭취량 약 ${dish.cal} kcal</div>
           </div>
         </div>
@@ -1443,7 +1580,7 @@ function recommend() {
             </ol>
           </article>
           <article class="subcard">
-            <h3>🍊 ${season} 제철 후식 추천</h3>
+            <h3>${isBanju ? '🥂 반주 곁들임 · 후식 추천' : `🍊 ${season} 제철 후식 추천`}</h3>
             <div class="dessert-list">
               <div class="dessert-item">
                 <span class="dessert-tag">${season} 제철 과일</span>
@@ -1454,14 +1591,18 @@ function recommend() {
                 <div class="dessert-name">${pair.drink}</div>
               </div>
             </div>
-            <p class="dessert-note">${pair.reason}</p>
+            <p class="dessert-note">${isBanju ? '반주와 함께 즐기기 좋은 저녁 메뉴예요. 식후에는 제철 과일과 따뜻한 차로 속을 편안하게 마무리해 보세요.' : pair.reason}</p>
           </article>
         </div>
       </section>`;
     }).join('')}
     <div class="tip">
-      ${tags.length ? 'ℹ️ ' + tags.join(' · ') : '🌿 ' + season + ' 계절감과 ' + weather + ' 날씨를 고려했어요'}<br>
-      추천한 메뉴 3가지는 각각 <strong>1주일(7일)</strong> 동안 다시 추천하지 않아요.
+      ${tags.length ? 'ℹ️ ' + tags.join(' · ') + '<br>' : ''}
+      ${isLunch
+        ? '🍽️ 점심은 <strong>밥·찌개 60%(3종) + 면·간편식 40%(2종)</strong> 비율로 구성했어요. 소울푸드·파스타·버거/토스트는 <strong>2주(14일)</strong>, 일반 메뉴는 <strong>4일</strong> 동안 중복 추천되지 않아요.'
+        : isDinner
+          ? '🍶 저녁은 <strong>반주와 어울리는 메뉴</strong>와 든든한 식사를 함께 담아 5가지를 추천했어요. 추천된 메뉴는 <strong>4일</strong> 동안 다시 나오지 않아요.'
+          : `🌿 ${season} 계절감과 ${weather} 날씨를 고려해 5가지를 추천했어요. 추천된 메뉴는 <strong>4일</strong> 동안 다시 나오지 않아요.`}
     </div>
   `;
   result.classList.add('show');
