@@ -127,7 +127,11 @@ button{cursor:pointer}
 .tip{margin-top:16px;padding:14px 16px;background:#f5f7ee;border-radius:14px;color:#4a5e44;font-size:13.5px;line-height:1.65}
 .foot{text-align:center;color:#9a918b;font-size:12.5px;margin-top:20px}
 .history{margin-top:16px;color:var(--muted);font-size:13px;text-align:center;font-weight:600}
-.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#292521;color:white;padding:11px 18px;border-radius:99px;font-size:13px;display:none;z-index:99}
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#292521;color:white;padding:11px 18px;border-radius:99px;font-size:13px;display:none;z-index:99} 
+ .delivery-btns{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.deliv-btn{border:1px solid var(--line);border-radius:10px;padding:8px 13px;font-size:13px;font-weight:800;display:inline-flex;align-items:center;gap:5px}
+.deliv-btn.baemin{background:#e6faf8;color:#0f8c82;border-color:#bcebe6}
+.deliv-btn.coupang{background:#eef6ff;color:#1b64da;border-color:#c6dfff} 
 @media(max-width:680px){
   .wrap{padding:18px 14px 40px}
   .controls,.subgrid{grid-template-columns:1fr}
@@ -1567,6 +1571,10 @@ function recommend() {
             <h2 class="dish">${dish.name}</h2>
             <div class="meta">오늘의 ${season} ${meal} 추천 메뉴</div>
             <div class="calorie">1인 섭취량 약 ${dish.cal} kcal</div>
+            <div class="delivery-btns">
+              <button type="button" class="deliv-btn baemin" onclick="openDeliveryApp('baemin')">🛵 배달의민족</button>
+              <button type="button" class="deliv-btn coupang" onclick="openDeliveryApp('coupangeats')">🚀 쿠팡이츠</button>
+            </div>
           </div>
         </div>
         <div class="subgrid">
@@ -1726,7 +1734,28 @@ document.querySelector('#share').addEventListener('click', async () => {
     }
   }
 });
+function openDeliveryApp(service) {
+  const apps = {
+    baemin: {
+      pkg: 'com.sampleapp',
+      storeUrl: 'https://play.google.com/store/apps/details?id=com.sampleapp'
+    },
+    coupangeats: {
+      pkg: 'com.coupang.mobile.eats',
+      storeUrl: 'https://play.google.com/store/apps/details?id=com.coupang.mobile.eats'
+    }
+  };
 
+  const target = apps[service];
+  if (!target) return;
+
+  const isAndroid = /Android/i.test(navigator.userAgent);
+  if (isAndroid) {
+    window.location.href = `intent://#Intent;package=${target.pkg};end`;
+  } else {
+    window.open(target.storeUrl, '_blank');
+  }
+}
 function toast(t) {
   const el = document.querySelector('#toast');
   el.textContent = t;
