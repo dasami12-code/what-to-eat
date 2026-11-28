@@ -1737,11 +1737,13 @@ document.querySelector('#share').addEventListener('click', async () => {
 function openDeliveryApp(service) {
   const apps = {
     baemin: {
-      pkg: 'com.sampleapp',
+      scheme: 'baemin://',
+      webUrl: 'https://www.baemin.com',
       storeUrl: 'https://play.google.com/store/apps/details?id=com.sampleapp'
     },
     coupangeats: {
-      pkg: 'com.coupang.mobile.eats',
+      scheme: 'coupangeats://',
+      webUrl: 'https://www.coupangeats.com',
       storeUrl: 'https://play.google.com/store/apps/details?id=com.coupang.mobile.eats'
     }
   };
@@ -1750,10 +1752,19 @@ function openDeliveryApp(service) {
   if (!target) return;
 
   const isAndroid = /Android/i.test(navigator.userAgent);
-  if (isAndroid) {
-    window.location.href = `intent://#Intent;package=${target.pkg};end`;
+  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  if (isAndroid || isIOS) {
+    const start = Date.now();
+    window.location.href = target.scheme;
+
+    setTimeout(() => {
+      if (Date.now() - start < 2000) {
+        window.location.href = isAndroid ? target.storeUrl : target.webUrl;
+      }
+    }, 1200);
   } else {
-    window.open(target.storeUrl, '_blank');
+    window.open(target.webUrl, '_blank', 'noopener,noreferrer');
   }
 }
 function toast(t) {
